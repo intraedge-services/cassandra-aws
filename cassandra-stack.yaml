@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  AvailabilityZones:
+    Description: 'List of Availability Zones to use for the subnets in the VPC. Note:
+      The logical order is preserved.'
+    Type: List<AWS::EC2::AvailabilityZone::Name>
+  NumAZs:
+    AllowedValues:
+    - '2'
+    - '3'
+    - '4'
+    - '5'
+    - '6'
+    Default: '2'
+    Description: Number of Availability Zones to use. This must match your selections in the list of Availability Zones.
+    Type: String
+  cidrA:
+    AllowedPattern: "^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\\/(1[6-9]|2[0-8]))$"
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 10.0.0.0/24
+    Description: CIDR block for private subnet A
+    Type: String
+  cidrB:
+    AllowedPattern: "^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\\/(1[6-9]|2[0-8]))$"
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 10.0.1.0/24
+    Description: CIDR block for private subnet B
+    Type: String
+  cidrC:
+    AllowedPattern: "^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\\/(1[6-9]|2[0-8]))$"
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 10.0.2.0/24
+    Description: CIDR block for private subnet C
+    Type: String
+  cidrD:
+    AllowedPattern: "^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\\/(1[6-9]|2[0-8]))$"
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 10.0.3.0/24
+    Description: CIDR block for private subnet D
+    Type: String
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+Conditions:
+  3AZ:
+    !Or [ !Equals [ !Ref NumAZs, '3' ], Condition: 4AZ ]
+  4AZ:
+    !Equals [ !Ref NumAZs, '4' ]
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Description: VPC that holds all Cassandra deployments
+    Properties: 
+      CidrBlock: "10.0.0.0/16"
+      Tags:
+        -
+          Key: Name
+          Value: !Ref "AWS::StackName"
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: Cassandra Deployments SG
+      GroupName: Cassandra-SG
+      VpcId: !Ref VPC
+      Tags:
+        - 
+          Key: Name
+          Value: !Join ["", [ !Ref "AWS::StackName", "-CassandraSG" ] ]
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Description: Public Subnet in first availability zone choosen
+    Properties: 
+      AvailabilityZone: !Select [ 0, !Ref AvailabilityZones ]
+      CidrBlock: !Ref cidrA
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref VPC
+      Tags:
+        -
+          Key: Name
+          Value: !Join ["", [ !Ref "AWS::StackName", "-SubA" ] ]
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Description: Public Subnet in second availability zone choosen
+    Properties: 
+      AvailabilityZone: !Select [ 1, !Ref AvailabilityZones ]
+      CidrBlock: !Ref cidrB
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref VPC
+      Tags:
+        -
+          Key: Name
+          Value: !Join ["", [ !Ref "AWS::StackName", "-SubB" ] ]
+  PrivateSubnetC:
+    Condition: 3AZ
+    Type: AWS::EC2::Subnet
+    Description: Public Subnet in third availability zone choosen
+    Properties: 
+      AvailabilityZone: !Select [ 2, !Ref AvailabilityZones ]
+      CidrBlock: !Ref cidrC
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref VPC
+      Tags:
+        -
+          Key: Name
+          Value: !Join ["", [ !Ref "AWS::StackName", "-SubC" ] ]
+  PrivateSubnetD:
+    Type: AWS::EC2::Instance
+    Description: EC2 Instance in the first Availability Zone
+    Properties:
+      AvailabilityZone: !Select [ 1, !Ref AvailabilityZones ]
+      ImageId: !Ref LatestAmiId
+      InstanceType: t2.micro
+      SecurityGroupIds: 
+        - !Ref SecurityGroup
+      SubnetId: !Ref PrivateSubnetB
+      UserData: 
+        Fn::Base64: !Sub | 
+          #!/bin/bash\r
+          yum update -y
+          yum install httpd -y
+          echo "<html><body><h1>Go Figure</h1></body></html>" > /var/www/html/index.html
+          httpd start
+      Tags:
+        - 
+          Key: Name
+          Value: !Join ["", [ !Ref "AWS::StackName", "-Cassandra" ] ]
